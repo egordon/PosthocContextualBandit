@@ -85,9 +85,12 @@ class HardConstraint(AugConBan):
     Bandit with Hard Constraint
     Optimizing (f - l)^2 + (g - l)^2 s.t. f=g
     """
+    def __init__(self, T, n, dF, dG, lamb=1E-2, lambF=0, lambG=0, usePosthoc = False):
+        super().__init__(T, n, dF, dG, lamb, lambF, lambG)
+        self.label = "lamb=%.2f, Hard Constraint" % (self.lamb)
+
 
     def update(self, context, arm, reward, posthoc):
-        self.label = "lamb=%.2f, Hard Constraint" % (self.lamb)
         # Record Context
         self.AF[arm, :] += np.outer(context, context)
         self.AFfull += np.outer(context, context)
@@ -115,4 +118,92 @@ class HardConstraint(AugConBan):
             A = self.AG[arm, :] + self.AFG.T @ AFinv @ self.AF[arm, :] @ AFinv @ self.AFG
             B = self.bG[arm, :] + self.AFG.T @ AFinv @ self.bF[arm, :]
             self.phiF[arm, :] = np.linalg.solve(A, B)
-            
+
+class LinUCB(HardConstraint):
+    """
+        LinUCB with Augmented Contextual Bandit
+    """
+
+    def __init__(self, T, n, dF, dG, useHC=True, useHCBound=True):
+        super().__init__(T, n, dF, dG, 1E7)
+        self.label = "LinUCB"
+        self.hcBound = useHC or useHCBound
+        self.hc = useHC
+        if self.hc:
+            self.label += ", HC"
+        if self.hcBound:
+            self.lable = ", HCBound"
+
+
+        self.delta = 1.0 / self.T
+        self.Ainv = np.array([np.eye(dF) for i in range(n)]) / self.lamb
+        self.counts = np.zeros(n)
+
+    def choice(self, t, context):
+        n = self.n
+        d = self.dF
+        lamb = 1E-2
+        delta = self.delta
+        context = context.reshape((d, 1))
+
+        # Initial Estimate
+        ret = (self.phiF @ context).flatten()
+
+        # UCB Calculations
+        for arm in range(n):
+            # m2 is upper bound on ||theta^*|| = 1
+            # L is upper bound on ||a|| = 1
+            radical = 2.0 * np.log(1.0 / delta) + d * np.log((d*lamb + self.counts[arm])/(d*lamb))
+            assert radical > 0
+            beta = np.sqrt(lamb) + np.sqrt(radical)
+
+            # Calculation of ||context||_ainv
+            norm = context.T @ self.Ainv[arm, :, :] @ context
+
+            ret[arm] += beta * norm
+        
+
+        return np.argmax(ret)
+
+    def update(self, context, arm, reward, posthoc):
+        # Up count
+        self.counts[arm] += 1
+
+        if self.hc:
+            # Hard Constraint Learning
+            super().update(context, arm, reward, posthoc)
+        else:
+            # Record Context
+            self.AF[arm, :] += np.outer(context, context)
+            self.AFfull += np.outer(context, context)
+            self.bF[arm, :] += reward * context
+
+            # Normal Ridge Regression
+            self.phiF[arm, :] = np.linalg.solve(self.AF[arm, :], self.bF[arm, :])
+
+        if self.hcBound:
+            # Hard Constraint Bound
+            AGinv = np.linalg.inv(self.AGfull)
+            for arm in range(self.n):
+                self.Ainv[arm, :, :] = np.linalg.inv(self.AF[arm, :] + self.AFG @ AGinv @ self.AG[arm, :] @ AGinv @ self.AFG.T)
+        else:
+            # Normal Bound
+            self.Ainv[arm, :, :] = np.linalg.inv(self.AF[arm, :])
+
+
+class EGreedy(LinUCB):
+    """
+        Greedy with Augmented Contextual Bandit
+    """
+    def __init__(self, T, n, dF, dG, eps=0.0, useHC=True):
+        super().__init__(T, n, dF, dG, useHC, False)
+        self.label = "%f-greedy" % eps
+        self.eps = eps
+        if self.hc:
+            self.label += ", HC"
+
+    def choice(self, t, context):
+        if np.random.random() > self.eps:
+            return self.greedy(context, None)
+
+        return np.random.randint(self.n)

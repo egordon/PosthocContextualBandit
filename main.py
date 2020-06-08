@@ -223,8 +223,17 @@ def main(dF, dG):
     # Result: Best is lambF=1E0
 
     # Test 4: Test Set Performance
+    #bandits.append(banalg.AugConBan(T, n, dF, dG, 1E7, 0, 0, False))
+    #bandits.append(banalg.AugConBan(T, n, dF, dG, 1E7, 1E0, 0, False))
+
+    # Test 5: SEt lambF = lambG
+    # for lamb in [0, 1E-2, 1E-1, 1E0, 1E1, 1E2]:
+    #    bandits.append(banalg.AugConBan(T, n, dF, dG, 1E7, lamb, lamb, False))
+
+    # Test 6: Test Set Performance + Hard Constraint
     bandits.append(banalg.AugConBan(T, n, dF, dG, 1E7, 0, 0, False))
     bandits.append(banalg.AugConBan(T, n, dF, dG, 1E7, 1E0, 0, False))
+    bandits.append(banalg.HardConstraint(T, n, dF, dG, 1E7, 0, 0, False))
 
     # Run experiment
     print("Running Experiment...")

@@ -80,4 +80,39 @@ class AugConBan(object):
         # phiG regression
         self.phiG[arm, :] = np.linalg.solve(self.AG[arm, :] + self.lambG * self.AGfull, self.bG[arm, :] + self.lambG * self.AFG.T @ self.phiF[arm, :])
 
+class HardConstraint(AugConBan):
+    """
+    Bandit with Hard Constraint
+    Optimizing (f - l)^2 + (g - l)^2 s.t. f=g
+    """
+
+    def update(self, context, arm, reward, posthoc):
+        self.label = "lamb=%.2f, Hard Constraint" % (self.lamb)
+        # Record Context
+        self.AF[arm, :] += np.outer(context, context)
+        self.AFfull += np.outer(context, context)
+        self.bF[arm, :] += reward * context
+
+        # Record Posthoc
+        self.AG[arm, :] += np.outer(posthoc, posthoc)
+        self.AGfull += np.outer(posthoc, posthoc)
+        self.bG[arm, :] += reward * posthoc
+
+        # Cross Parameters
+        XTP = np.outer(posthoc, context)
+        assert XTP.T.shape == (self.dF, self.dG)
+        self.AFG += XTP.T
+
+        # phiF regression
+        if not self.usePosthoc:
+            AGinv = np.linalg.inv(self.AGfull)
+            A = self.AF[arm, :] + self.AFG @ AGinv @ self.AG[arm, :] @ AGinv @ self.AFG.T
+            B = self.bF[arm, :] + self.AFG @ AGinv @ self.bG[arm, :]
+            self.phiF[arm, :] = np.linalg.solve(A, B)
+        # phiG regression
+        else:
+            AFinv = np.linalg.inv(self.AFfull)
+            A = self.AG[arm, :] + self.AFG.T @ AFinv @ self.AF[arm, :] @ AFinv @ self.AFG
+            B = self.bG[arm, :] + self.AFG.T @ AFinv @ self.bF[arm, :]
+            self.phiF[arm, :] = np.linalg.solve(A, B)
             
